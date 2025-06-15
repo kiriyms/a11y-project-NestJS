@@ -26,10 +26,14 @@ export class ReportQueueEventsListener extends QueueEventsHost {
   }): Promise<void> {
     // log this
     console.log(`[report] completed job ${job.jobId}`);
+    console.log(
+      `[report] completed job filePath: ${job.returnvalue.accessibilityAnalysisFilePath}`,
+    );
     await this.reportService.queueUpdateReportStatus(
       job.jobId,
       QueueName.ReportQueue,
       'COMPLETED',
+      job.returnvalue.accessibilityAnalysisFilePath,
     );
   }
 
@@ -45,6 +49,7 @@ export class ReportQueueEventsListener extends QueueEventsHost {
       job.jobId,
       QueueName.ReportQueue,
       'FAILED',
+      '',
     );
   }
 }

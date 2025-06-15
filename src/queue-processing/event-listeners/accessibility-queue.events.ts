@@ -47,6 +47,7 @@ export class AccessibilityQueueEventsListener extends QueueEventsHost {
       job.jobId,
       QueueName.AccessibilityQueue,
       'FAILED',
+      '',
     );
   }
 }

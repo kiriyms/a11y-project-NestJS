@@ -18,7 +18,7 @@ export class AccessibilityWorker extends WorkerHost {
   ): Promise<ReportGenerationDto> {
     const userDataDir = `tempdir_${Date.now()}`;
     const userDataDirPath = `/${process.env.USER_DATA_DIR}/${userDataDir}`;
-    fs.mkdirSync(userDataDirPath, { recursive: true });
+    // fs.mkdirSync(userDataDirPath, { recursive: true });
 
     let driver: ThenableWebDriver;
     try {
@@ -27,7 +27,7 @@ export class AccessibilityWorker extends WorkerHost {
         `User data dir for this user: ${`--user-data-dir=${userDataDirPath}`}`,
       );
       opts.addArguments(
-        `--user-data-dir=${userDataDirPath}`,
+        // `--user-data-dir=${userDataDirPath}`,
         '--headless=new',
         '--no-sandbox',
         '--disable-dev-shm-usage',

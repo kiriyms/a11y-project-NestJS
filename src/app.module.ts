@@ -19,6 +19,8 @@ import { ReportWorker } from './queue-processing/workers/report.worker';
 import { AccessibilityQueueEventsListener } from './queue-processing/event-listeners/accessibility-queue.events';
 import { ReportQueueEventsListener } from './queue-processing/event-listeners/report-queue.events';
 import { ScheduleModule } from '@nestjs/schedule';
+import { ServeStaticModule } from '@nestjs/serve-static';
+import { join } from 'path';
 
 @Module({
   imports: [
@@ -47,6 +49,16 @@ import { ScheduleModule } from '@nestjs/schedule';
       { name: REPORT_GENERATION_QUEUE },
     ),
     ScheduleModule.forRoot(),
+    ServeStaticModule.forRoot({
+      rootPath: join(__dirname, '..', 'reports'),
+      // rootPath: join(__dirname, 'reports'),
+      serveRoot: '/reports',
+      serveStaticOptions: {
+        setHeaders: (res, path, stat) => {
+          res.setHeader('Content-Type', 'application/pdf');
+        },
+      },
+    }),
   ],
   controllers: [AppController],
   providers: [

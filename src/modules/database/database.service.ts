@@ -301,6 +301,7 @@ export class DatabaseService
   async updateReportStatusById(
     id: string,
     status: ReportStatus,
+    fileName: string,
   ): Promise<Report> {
     const report = await this.report.findUnique({
       where: { id },
@@ -312,7 +313,7 @@ export class DatabaseService
 
     return this.report.update({
       where: { id },
-      data: { status },
+      data: { status, fileName },
     });
   }
 }

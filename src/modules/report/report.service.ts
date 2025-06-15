@@ -81,6 +81,7 @@ export class ReportService {
     jobId: string,
     queueName: QueueName,
     status: ReportStatus,
+    fileName: string,
   ): Promise<void> {
     let job: Job;
     switch (queueName) {
@@ -103,6 +104,7 @@ export class ReportService {
     await this.databaseService.updateReportStatusById(
       job.data.reportId,
       status,
+      fileName,
     );
   }
 

@@ -30,6 +30,7 @@ export class ReportWorker extends WorkerHost {
     );
     console.log(reportPath);
     doc.save(reportPath);
+    job.data.accessibilityAnalysisFilePath = reportPath;
     return job.data;
   }
 }
