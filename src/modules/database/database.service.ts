@@ -13,6 +13,7 @@ import {
   VerificationToken,
   ResetPasswordToken,
   ReportStatus,
+  SubscriptionStatus,
 } from '@prisma/client';
 
 @Injectable()
@@ -45,6 +46,14 @@ export class DatabaseService
     return this.user.findUnique({
       where: { email },
       include: { reports: { orderBy: { createdAt: 'desc' } } },
+    });
+  }
+
+  async getUserByStrpeSubscriptionId(
+    stripeSubscriptionId: string,
+  ): Promise<User | null> {
+    return this.user.findUnique({
+      where: { stripeSubscriptionId },
     });
   }
 
@@ -98,6 +107,42 @@ export class DatabaseService
       where: { id },
       data: {
         passwordHash,
+      },
+    });
+  }
+
+  async updateUserSubscriptionStatus(
+    id: string,
+    subscription: SubscriptionStatus,
+  ): Promise<User> {
+    return this.user.update({
+      where: { id },
+      data: {
+        subscription,
+      },
+    });
+  }
+
+  async updateUserStripeCustomerId(
+    id: string,
+    stripeCustomerId: string,
+  ): Promise<User> {
+    return this.user.update({
+      where: { id },
+      data: {
+        stripeCustomerId,
+      },
+    });
+  }
+
+  async updateUserStripeSubscriptionId(
+    id: string,
+    stripeSubscriptionId: string,
+  ): Promise<User> {
+    return this.user.update({
+      where: { id },
+      data: {
+        stripeSubscriptionId,
       },
     });
   }

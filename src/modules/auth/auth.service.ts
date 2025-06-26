@@ -1,8 +1,11 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
 import * as argon2 from 'argon2';
 import {
   Injectable,
   InternalServerErrorException,
   NotFoundException,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
 import { TokenPairDto } from './dto/token-pair.dto';
@@ -217,5 +220,206 @@ export class AuthService {
 
     const { passwordHash, ...userDto } = user;
     return userDto;
+  }
+
+  async subscribePremium(userId: string): Promise<any> {
+    const user = await this.databaseService.getUserById(userId);
+    if (!user) {
+      throw new NotFoundException(
+        `Data to subscribe for user id '${userId}' not found`,
+      );
+    }
+
+    if (!process.env.STRIPE_TEST_SK) {
+      throw new InternalServerErrorException('Stripe secret key not set');
+    }
+
+    if (!process.env.STRIPE_SUBSCRIPTION_PRICE_ID) {
+      throw new InternalServerErrorException(
+        'Stripe subscription price ID key not set',
+      );
+    }
+
+    const stripe = require('stripe')(process.env.STRIPE_TEST_SK);
+
+    if (!user.stripeCustomerId) {
+      const customer = await stripe.customers.create({
+        email: user.email,
+      });
+
+      if (!customer.id || typeof customer.id !== 'string') {
+        throw new InternalServerErrorException(
+          'New Customer ID is not a string or is missing',
+        );
+      }
+
+      await this.databaseService.updateUserStripeCustomerId(
+        user.id,
+        customer.id,
+      );
+
+      user.stripeCustomerId = customer.id;
+    }
+
+    const session = await stripe.checkout.sessions.create({
+      line_items: [
+        { price: process.env.STRIPE_SUBSCRIPTION_PRICE_ID, quantity: 1 },
+      ],
+      customer: user.stripeCustomerId,
+      metadata: {
+        userId: user.id,
+        userEmail: user.email,
+      },
+      success_url: `${process.env.FRONTEND_URL}/profile/success`,
+      cancel_url: `${process.env.FRONTEND_URL}/profile/cancel`,
+      mode: 'subscription',
+    });
+
+    return session.url;
+  }
+
+  async handleStripeWebhook(stripeSignature: string, body): Promise<void> {
+    const stripe = require('stripe')(process.env.STRIPE_TEST_SK);
+
+    if (!stripeSignature || !body) {
+      throw new UnauthorizedException('Stripe signature or body not found');
+    }
+
+    try {
+      const event = await stripe.webhooks.constructEvent(
+        body,
+        stripeSignature,
+        process.env.STRIPE_WEBHOOK_SECRET,
+      );
+      console.log(`Stripe event type: ${JSON.stringify(event.type)}`);
+
+      switch (event.type) {
+        case 'checkout.session.completed': {
+          console.log(
+            `checkout.session.completed event: ${JSON.stringify(event.data.object.subscription)}`,
+          );
+          console.log(
+            `checkout.session.completed event: ${JSON.stringify(event.data.object.metadata.userId)}`,
+          );
+          console.log(
+            `checkout.session.completed event: ${JSON.stringify(event.data.object.metadata.userEmail)}\n`,
+          );
+          const user = await this.databaseService.getUserById(
+            event.data.object.metadata.userId,
+          );
+
+          if (!user) {
+            console.log(
+              `Stripe metadata user error: User with ID ${event.data.object.metadata.userId} not found`,
+            );
+            throw new UnauthorizedException(
+              `User with ID ${event.data.object.metadata.userId} not found`,
+            );
+          }
+
+          if (user.email !== event.data.object.metadata.userEmail) {
+            console.log(
+              `Stripe metadata user email mismatch: (metadata)${event.data.object.metadata.userEmail}, (database) ${user.email}`,
+            );
+            throw new UnauthorizedException(
+              `Stripe metadata user email mismatch`,
+            );
+          }
+
+          await this.databaseService.updateUserStripeSubscriptionId(
+            user.id,
+            event.data.object.subscription,
+          );
+          await this.databaseService.updateUserSubscriptionStatus(
+            user.id,
+            'PREMIUM',
+          );
+
+          console.log(
+            `Adding PREMIUM subscription (${event.data.object.subscription}) to user ${user.email}`,
+          );
+
+          break;
+        }
+
+        case 'customer.subscription.updated': {
+          console.log(
+            `customer.subscription.updated event: ${JSON.stringify(event.data.object.id)}`,
+          );
+          console.log(
+            `customer.subscription.updated event: ${JSON.stringify(event.data.object.status)}\n`,
+          );
+          const user = await this.databaseService.getUserByStrpeSubscriptionId(
+            event.data.object.id,
+          );
+
+          if (!user) {
+            console.log(
+              `Stripe metadata user error: User for subscription ID ${event.data.object.id} not found`,
+            );
+            throw new UnauthorizedException(
+              `User with subscription ID ${event.data.object.id} not found`,
+            );
+          }
+
+          if (event.data.object.status === 'active') {
+            await this.databaseService.updateUserSubscriptionStatus(
+              user.id,
+              'PREMIUM',
+            );
+
+            console.log(
+              `[Sub update] Adding PREMIUM subscription to user ${user.email}`,
+            );
+          } else {
+            await this.databaseService.updateUserSubscriptionStatus(
+              user.id,
+              'BASE',
+            );
+
+            console.log(
+              `[Sub update] Removing PREMIUM subscription from user ${user.email}`,
+            );
+          }
+
+          break;
+        }
+
+        case 'customer.subscription.deleted': {
+          console.log(
+            `customer.subscription.deleted event: ${JSON.stringify(event.data.object.id)}`,
+          );
+          console.log(
+            `customer.subscription.deleted event: ${JSON.stringify(event.data.object.status)}\n`,
+          );
+          const user = await this.databaseService.getUserByStrpeSubscriptionId(
+            event.data.object.id,
+          );
+
+          if (!user) {
+            console.log(
+              `Stripe metadata user error: User for subscription ID ${event.data.object.id} not found`,
+            );
+            throw new UnauthorizedException(
+              `User with subscription ID ${event.data.object.id} not found`,
+            );
+          }
+
+          await this.databaseService.updateUserSubscriptionStatus(
+            user.id,
+            'BASE',
+          );
+
+          console.log(
+            `[Sub update] Removing PREMIUM subscription from user ${user.email}`,
+          );
+
+          break;
+        }
+      }
+    } catch (err) {
+      console.log(`error constructing Stripe event:--${err.message}--\n`);
+      throw new UnauthorizedException('Invalid Stripe Signature');
+    }
   }
 }

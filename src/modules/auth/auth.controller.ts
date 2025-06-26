@@ -1,6 +1,5 @@
 /* eslint-disable @typescript-eslint/require-await */
 import {
-  Request,
   Controller,
   Post,
   UseGuards,
@@ -11,7 +10,12 @@ import {
   Response,
   Body,
   Patch,
+  Headers,
+  Req,
+  RawBodyRequest,
 } from '@nestjs/common';
+import { Request as ExpressRequest } from 'express';
+import { Request as NestRequest } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { TokenPairDto } from './dto/token-pair.dto';
 import { LocalAuthGuard } from 'src/guards/local-auth.guard';
@@ -24,6 +28,7 @@ import { ResetPasswordDataDto } from './dto/reset-password-data.dto';
 import { ResetPasswordEmailDataDto } from './dto/reset-password-email-data.dto';
 import { JwtResetPasswordAuthGuard } from 'src/guards/jwt-reset-password-auth.guard';
 import { UserDataDto } from './dto/user-data.dto';
+import { Request } from 'express';
 
 @Controller('auth')
 export class AuthController {
@@ -45,14 +50,14 @@ export class AuthController {
   @UseGuards(JwtVerifyAuthGuard)
   @HttpCode(HttpStatus.OK)
   @Get('verify/callback')
-  async verifyCallback(@Request() req, @Response() res): Promise<void> {
+  async verifyCallback(@NestRequest() req, @Response() res): Promise<void> {
     console.log(`verify user: ${JSON.stringify(req.user)}`);
     await this.authService.verify(req.user.sub);
     res.redirect(`${process.env.FRONTEND_URL}/verify/callback`);
   }
 
   @Get('verify/resend')
-  async resendVerification(@Request() req): Promise<boolean> {
+  async resendVerification(@NestRequest() req): Promise<boolean> {
     console.log(`resendVerification user: ${JSON.stringify(req.user)}`);
     return await this.authService.resendVerification(req.user.sub);
   }
@@ -61,7 +66,7 @@ export class AuthController {
   @UseGuards(LocalAuthGuard)
   @HttpCode(HttpStatus.OK)
   @Post('login')
-  async login(@Request() req): Promise<TokenPairDto> {
+  async login(@NestRequest() req): Promise<TokenPairDto> {
     console.log(`login user: ${JSON.stringify(req.user)}`);
     return await this.authService.login(req.user.id);
   }
@@ -70,14 +75,14 @@ export class AuthController {
   @UseGuards(JwtRefreshAuthGuard)
   @HttpCode(HttpStatus.OK)
   @Post('refresh')
-  async refresh(@Request() req): Promise<TokenPairDto> {
+  async refresh(@NestRequest() req): Promise<TokenPairDto> {
     console.log(`refresh user: ${JSON.stringify(req.user)}`);
     return await this.authService.refresh(req.user.sub);
   }
 
   @HttpCode(HttpStatus.OK)
   @Delete('logout')
-  async logout(@Request() req): Promise<boolean> {
+  async logout(@NestRequest() req): Promise<boolean> {
     console.log(`logout user: ${JSON.stringify(req.user)}`);
     return await this.authService.logout(req.user.sub);
   }
@@ -90,7 +95,7 @@ export class AuthController {
   @Public()
   @UseGuards(GoogleAuthGuard)
   @Get('google/callback')
-  async googleCallback(@Request() req, @Response() res): Promise<void> {
+  async googleCallback(@NestRequest() req, @Response() res): Promise<void> {
     console.log(`googleCallback user: ${JSON.stringify(req.user)}`);
     const tokenPair = await this.authService.googleCallback(req.user.id);
     res.redirect(
@@ -113,7 +118,7 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @Patch('password/reset/callback')
   async resetPasswordCallback(
-    @Request() req,
+    @NestRequest() req,
     @Body() data: ResetPasswordDataDto,
   ): Promise<boolean> {
     console.log(`reset password callback user: ${JSON.stringify(req.user)}`);
@@ -122,8 +127,26 @@ export class AuthController {
 
   @HttpCode(HttpStatus.OK)
   @Get('profile-info')
-  async profileInfo(@Request() req): Promise<UserDataDto> {
+  async profileInfo(@NestRequest() req): Promise<UserDataDto> {
     console.log(`profileInfo user: ${JSON.stringify(req.user)}`);
     return await this.authService.profileInfo(req.user.sub);
+  }
+
+  @HttpCode(HttpStatus.OK)
+  @Post('subscribe-premium')
+  async subscribePremium(@NestRequest() req): Promise<any> {
+    console.log(`profileInfo user: ${JSON.stringify(req.user)}`);
+    return await this.authService.subscribePremium(req.user.sub);
+  }
+
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  @Post('stripe-webhook')
+  async handleStripeWebhook(
+    @Req() req: RawBodyRequest<ExpressRequest>,
+    @Headers('stripe-signature') stripeSignature,
+  ): Promise<void> {
+    const body = req.rawBody;
+    await this.authService.handleStripeWebhook(stripeSignature, body);
   }
 }
