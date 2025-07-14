@@ -2,6 +2,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
 import * as argon2 from 'argon2';
 import {
+  ForbiddenException,
   Injectable,
   InternalServerErrorException,
   NotFoundException,
@@ -164,7 +165,13 @@ export class AuthService {
       const user = await this.databaseService.getUserByEmail(email);
       if (!user) {
         // log the error but don't throw an exception to avoid leaking user data
+        console.log(`Reset password requested for non-existing user: ${email}`);
+        // return true to avoid leaking information
         return true;
+      }
+      if (user.isOAuth) {
+        console.log(`Reset password requested for OAuth user: ${email}`);
+        throw new ForbiddenException('OAuth users cannot reset password');
       }
 
       const { resetPasswordToken } =
@@ -175,8 +182,8 @@ export class AuthService {
       await this.resendService.send({
         from: 'no-reply@a11y-server.xyz',
         to: user.email,
-        subject: 'A11yReport Password Reset',
-        text: `Password reset was requested for this account.\nIf this wasn't you, you can ignore this email.\nTo reset the password, please follow this link:\n\n${process.env.RESET_PASSWORD_CALLBACK_URL}?resetPasswordToken=${resetPasswordToken}`,
+        subject: 'MyACHelp Password Reset',
+        text: `Password reset was requested for this account.\nIf this wasn't you, you can ignore this email.\nTo reset the password, please follow this link:\n\n${process.env.FRONTEND_URL}/reset-password/callback?resetPasswordToken=${resetPasswordToken}`,
       });
 
       return true;

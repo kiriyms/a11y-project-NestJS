@@ -21,6 +21,8 @@ import { ReportQueueEventsListener } from './queue-processing/event-listeners/re
 import { ScheduleModule } from '@nestjs/schedule';
 import { ServeStaticModule } from '@nestjs/serve-static';
 import { join } from 'path';
+import { ImageGenerationService } from './modules/image-generation/image-generation.service';
+import { ImageGenerationModule } from './modules/image-generation/image-generation.module';
 
 @Module({
   imports: [
@@ -59,6 +61,7 @@ import { join } from 'path';
         },
       },
     }),
+    ImageGenerationModule,
   ],
   controllers: [AppController],
   providers: [
@@ -70,6 +73,7 @@ import { join } from 'path';
     ReportWorker,
     AccessibilityQueueEventsListener,
     ReportQueueEventsListener,
+    ImageGenerationService,
   ],
 })
 export class AppModule {}

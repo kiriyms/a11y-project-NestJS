@@ -8,6 +8,7 @@ import { JwtRefreshStrategy } from 'src/strategies/jwt-refresh.strategy';
 import { GoogleStrategy } from 'src/strategies/google.strategy';
 import { JwtVerifyStrategy } from 'src/strategies/jwt-verify.strategy';
 import { TokenGenerationService } from '../token-generation/token-generation.service';
+import { JwtResetPasswordStrategy } from 'src/strategies/jwt-reset-password.strategy';
 
 @Module({
   imports: [PassportModule],
@@ -18,6 +19,7 @@ import { TokenGenerationService } from '../token-generation/token-generation.ser
     JwtAccessStrategy,
     JwtRefreshStrategy,
     JwtVerifyStrategy,
+    JwtResetPasswordStrategy,
     GoogleStrategy,
     TokenGenerationService,
   ],

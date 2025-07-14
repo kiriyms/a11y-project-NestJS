@@ -1,0 +1,262 @@
+import { Injectable } from '@nestjs/common';
+import { AxeResults } from 'axe-core';
+import { By, IRectangle, ThenableWebDriver } from 'selenium-webdriver';
+import * as Sharp from 'sharp';
+import * as path from 'path';
+import * as fs from 'fs';
+
+@Injectable()
+export class ImageGenerationService {
+  async generateImages(
+    results: AxeResults,
+    driver: ThenableWebDriver,
+    outputDir: string,
+  ): Promise<string[]> {
+    try {
+      const rects: IRectangle[] = [];
+      const paths: string[] = [];
+
+      const violations = results.violations;
+      for (let i = 0; i < violations.length; i++) {
+        const violation = violations[i];
+        for (let j = 0; j < violation.nodes.length; j++) {
+          const target = violation.nodes[j].target;
+
+          for (const selector of target) {
+            const element = await driver.findElement(
+              By.css(selector.toString()),
+            );
+
+            console.log(`attempting to screeshot element_${i}_${j}`);
+            const rect = await element.getRect();
+            try {
+              const image = await element.takeScreenshot(true);
+              rects.push(rect);
+              const filename = path.join(
+                outputDir,
+                `element_${i + 1}_${j + 1}.png`,
+              );
+              fs.writeFileSync(filename, image, 'base64');
+              paths.push(filename);
+              console.log(`Saved element to: ${filename}`);
+            } catch (error) {
+              console.log(`failed at screenshot element taking: ${error}`);
+            }
+          }
+        }
+      }
+
+      const pageImage = await driver.takeScreenshot();
+      const pageFilename = path.join(outputDir, `page.png`);
+      fs.writeFileSync(pageFilename, pageImage, 'base64');
+
+      const baseMetadata = await Sharp(pageFilename).metadata();
+      const mutedBaseBuffer = await Sharp(pageFilename)
+        .composite([
+          {
+            input: {
+              create: {
+                width: baseMetadata.width,
+                height: baseMetadata.height,
+                channels: 4,
+                background: { r: 255, g: 255, b: 255, alpha: 0.2 },
+              },
+            },
+            blend: 'over',
+          },
+        ])
+        .png()
+        .toBuffer();
+
+      rects.forEach((el) => {
+        el.x = Math.min(baseMetadata.width, Math.ceil(el.x));
+        el.y = Math.min(baseMetadata.height, Math.ceil(el.y));
+        el.width = Math.ceil(el.width);
+        el.height = Math.ceil(el.height);
+      });
+
+      for (let i = 0; i < rects.length; i++) {
+        const { x, y } = rects[i];
+        const smallPath = paths[i];
+
+        const smallImageBuffer = await Sharp(smallPath).toBuffer();
+        const borderedBuffer = await this.addRedBorder(smallImageBuffer);
+
+        const compositedBuffer = await Sharp(mutedBaseBuffer)
+          .composite([{ input: borderedBuffer, top: y, left: x }])
+          .png()
+          .toBuffer();
+
+        const outPath = path.join(outputDir, `overlay_${i + 1}.png`);
+        await Sharp(compositedBuffer).toFile(outPath);
+        console.log(`Saved: ${outPath}`);
+      }
+      await this.generateCroppedRegions(
+        rects,
+        paths,
+        {
+          width: baseMetadata.width,
+          height: baseMetadata.height,
+        },
+        outputDir,
+      );
+    } catch (error) {
+      console.log(`Error during image generation: ${error}`);
+      return [];
+    }
+
+    return [];
+  }
+
+  private async addRedBorder(imageBuffer) {
+    const borderSize = 2;
+    const metadata = await Sharp(imageBuffer).metadata();
+    const width = metadata.width;
+    const height = metadata.height;
+
+    const borderOverlay = await Sharp({
+      create: {
+        width,
+        height,
+        channels: 4,
+        background: { r: 0, g: 0, b: 0, alpha: 0 },
+      },
+    })
+      .composite([
+        {
+          input: {
+            create: {
+              width,
+              height: borderSize,
+              channels: 4,
+              background: { r: 255, g: 0, b: 0, alpha: 1 },
+            },
+          },
+          top: 0,
+          left: 0,
+        },
+        {
+          input: {
+            create: {
+              width,
+              height: borderSize,
+              channels: 4,
+              background: { r: 255, g: 0, b: 0, alpha: 1 },
+            },
+          },
+          top: height - borderSize,
+          left: 0,
+        },
+        {
+          input: {
+            create: {
+              width: borderSize,
+              height,
+              channels: 4,
+              background: { r: 255, g: 0, b: 0, alpha: 1 },
+            },
+          },
+          top: 0,
+          left: 0,
+        },
+        {
+          input: {
+            create: {
+              width: borderSize,
+              height,
+              channels: 4,
+              background: { r: 255, g: 0, b: 0, alpha: 1 },
+            },
+          },
+          top: 0,
+          left: width - borderSize,
+        },
+      ])
+      .png()
+      .toBuffer();
+
+    return await Sharp(imageBuffer)
+      .composite([{ input: borderOverlay }])
+      .png()
+      .toBuffer();
+  }
+
+  private async generateCroppedRegions(
+    smallImagesInfo: IRectangle[],
+    paths: string[],
+    baseMetadata: { width: number; height: number },
+    outputDir: string,
+  ) {
+    const cropOutputDir = path.join(outputDir, 'output_crops');
+    if (!fs.existsSync(cropOutputDir)) fs.mkdirSync(cropOutputDir);
+
+    const maxWidth = baseMetadata.width;
+    const maxHeight = baseMetadata.height;
+    const minWidth = 0;
+    const minHeight = 0;
+
+    for (let i = 0; i < smallImagesInfo.length; i++) {
+      // eslint-disable-next-line prefer-const
+      let { x, y, width, height } = smallImagesInfo[i];
+      const smallMetaData = await Sharp(paths[i]).metadata();
+      width = smallMetaData.width;
+      height = smallMetaData.height;
+      const overlayPath = path.join(outputDir, `overlay_${i + 1}.png`);
+      const cropPath = path.join(cropOutputDir, `crop_${i + 1}.png`);
+      const minMargin = 25;
+
+      let cropHeight: number;
+      let cropWidth: number;
+      let margin: number;
+      let cropX: number;
+      let cropY: number;
+      let squareSize: number;
+
+      if (width < height) {
+        cropHeight = minMargin * 2 + height;
+        margin = Math.ceil((cropHeight - width) / 2);
+        cropWidth = margin * 2 + width;
+        cropX = Math.max(x - margin, minWidth);
+        cropY = Math.max(y - minMargin, minHeight);
+        squareSize = cropHeight;
+      } else {
+        cropWidth = minMargin * 2 + width;
+        margin = Math.ceil((cropWidth - height) / 2);
+        cropHeight = margin * 2 + height;
+        cropX = Math.max(x - minMargin, minWidth);
+        cropY = Math.max(y - margin, minHeight);
+        squareSize = cropWidth;
+      }
+
+      console.log(`x: ${x}, y: ${y}, w: ${width}, h: ${height}`);
+      console.log(
+        `crop x: ${cropX}, y: ${cropY}, w: ${cropWidth}, h: ${cropHeight}`,
+      );
+
+      if (cropX + cropWidth > maxWidth) {
+        cropWidth = maxWidth - cropX;
+      }
+      if (cropY + cropHeight > maxHeight) {
+        cropHeight = maxHeight - cropY;
+      }
+
+      if (cropWidth <= 0 || cropHeight <= 0) {
+        console.warn(`Skipping crop_${i + 1}. Invalid crop dimensions.`);
+        continue;
+      }
+
+      const croppedBuffer = await Sharp(overlayPath)
+        .extract({
+          left: cropX,
+          top: cropY,
+          width: cropWidth,
+          height: cropHeight,
+        })
+        .png()
+        .toBuffer();
+
+      await Sharp(croppedBuffer).toFile(cropPath);
+      console.log(`Saved crop: ${cropPath}`);
+    }
+  }
+}

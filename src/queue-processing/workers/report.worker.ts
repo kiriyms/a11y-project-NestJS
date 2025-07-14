@@ -18,6 +18,8 @@ export class ReportWorker extends WorkerHost {
   }
 
   async process(job: Job<ReportGenerationDto>): Promise<ReportGenerationDto> {
+    console.log(`__dirname: ${__dirname}`);
+
     const fileContents = fs.readFileSync(
       job.data.accessibilityAnalysisFilePath,
       'utf8',

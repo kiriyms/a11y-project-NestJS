@@ -43,6 +43,10 @@ export class AccessibilityQueueEventsListener extends QueueEventsHost {
   }): Promise<void> {
     // log this
     console.log(`[accessibility] failed job ${job.jobId}`);
+    await this.reportService.incrementRemainingReports(
+      job.jobId,
+      QueueName.AccessibilityQueue,
+    );
     await this.reportService.queueUpdateReportStatus(
       job.jobId,
       QueueName.AccessibilityQueue,

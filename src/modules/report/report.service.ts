@@ -38,6 +38,9 @@ export class ReportService {
     if (!user) {
       throw new NotFoundException('user not found');
     }
+    if (user.subscription !== 'PREMIUM' && user.remainingReports <= 0) {
+      throw new ForbiddenException('user has no remaining reports');
+    }
     // try/catch starting a job. If fails, change report status to failed
     // OR use a queue listener to change job to failed/completed
     const jobData: AccessibilityAnalysisDto = {
@@ -47,7 +50,47 @@ export class ReportService {
     };
     await this.accessibilityQueue.add('analyze-domain', jobData);
 
+    if (user.subscription !== 'PREMIUM') {
+      await this.databaseService.updateUserRemainingReportsDecrement(user.id);
+    }
+
     return report;
+  }
+
+  async incrementRemainingReports(
+    jobId: string,
+    queueName: QueueName,
+  ): Promise<void> {
+    let job: Job;
+    switch (queueName) {
+      case QueueName.AccessibilityQueue:
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+        job = await this.accessibilityQueue.getJob(jobId);
+        break;
+      case QueueName.ReportQueue:
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+        job = await this.reportQueue.getJob(jobId);
+        break;
+      default:
+        // log error
+        return;
+    }
+    console.log(
+      `job data queried from ${queueName} queue: ${JSON.stringify(job.data)}`,
+    );
+    if (!job) {
+      // log error
+    }
+
+    const user = await this.databaseService.getUserByEmail(job.data.userEmail);
+    if (!user) {
+      return;
+    }
+    if (user.subscription === 'PREMIUM') {
+      return;
+    }
+
+    await this.databaseService.updateUserRemainingReportsIncrement(user.id);
   }
 
   async getUserReports(userId: string): Promise<Report[]> {
@@ -97,7 +140,9 @@ export class ReportService {
         // log error
         return;
     }
-    console.log(`job data queried from queue: ${JSON.stringify(job.data)}`);
+    console.log(
+      `job data queried from ${queueName} queue: ${JSON.stringify(job.data)}`,
+    );
     if (!job) {
       // log error
     }
@@ -124,4 +169,6 @@ export class ReportService {
       text: `Monthly report email sent at ${new Date().toISOString()}`,
     });
   }
+
+  // ADD CRON FOR REFRESHING ALL REPORT LIMITS MONTHLY
 }

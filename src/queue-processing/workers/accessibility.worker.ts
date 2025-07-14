@@ -10,9 +10,14 @@ import * as chrome from 'selenium-webdriver/chrome';
 import { AxeResults } from 'axe-core';
 import { InternalServerErrorException } from '@nestjs/common';
 import { AccessibilityAnalysisDto } from 'src/modules/report/dto/accessibility-analysis.dto';
+import { ImageGenerationService } from 'src/modules/image-generation/image-generation.service';
 
 @Processor(ACCESSIBILITY_ANALYSIS_QUEUE, { concurrency: 2 })
 export class AccessibilityWorker extends WorkerHost {
+  constructor(private readonly imageGenerationService: ImageGenerationService) {
+    super();
+  }
+
   async process(
     job: Job<AccessibilityAnalysisDto>,
   ): Promise<ReportGenerationDto> {
@@ -33,6 +38,7 @@ export class AccessibilityWorker extends WorkerHost {
         '--disable-dev-shm-usage',
         '--incognito',
         '--disable-gpu',
+        '--window-size=1920,1080',
       );
       driver = new Builder()
         .forBrowser('chrome')
@@ -56,10 +62,30 @@ export class AccessibilityWorker extends WorkerHost {
     try {
       await driver.get(job.data.domain);
 
+      const { width, height } = await driver.executeScript<{
+        width: number;
+        height: number;
+      }>(`
+        return {
+          width: Math.max(document.body.scrollWidth, document.documentElement.clientWidth),
+          height: Math.max(document.body.scrollHeight, document.documentElement.clientHeight)
+        };
+      `);
+      await driver.manage().window().setRect({ x: 0, y: 0, width, height });
+      await driver.executeScript(`
+        document.documentElement.style.overflow = 'hidden';
+        document.body.style.overflow = 'hidden';
+      `);
+
       const results: AxeResults = await new AxeBuilder(driver).analyze();
 
       const fileName = 'report_' + Date.now();
-      const outputDir = path.join(__dirname, 'reports', 'raw');
+      const outputDir = path.join(
+        __dirname,
+        'reports',
+        'raw',
+        job.data.reportId,
+      );
       accessibilityAnalysisFilePath = path.join(outputDir, fileName + '.json');
       console.log(accessibilityAnalysisFilePath);
       console.log(__dirname);
@@ -72,12 +98,21 @@ export class AccessibilityWorker extends WorkerHost {
         JSON.stringify(results, null, 2),
         'utf8',
       );
+
+      // await driver.takeScreenshot().then((image) => {
+      //   const screenshotPath = path.join(outputDir, fileName + '.png');
+      //   fs.writeFileSync(screenshotPath, image, 'base64');
+      //   console.log(`Screenshot saved to ${screenshotPath}`);
+      // });
+
+      await this.imageGenerationService.generateImages(
+        results,
+        driver,
+        outputDir,
+      );
+
       await driver.quit();
 
-      // SUBTRACT REPORTS HERE
-      // await this.databaseService.patchUser(userId, {
-      //   remainingReports: user.remainingReports - 1,
-      // });
       console.log(
         `Success to generate report for user: ${job.data.userEmail}, for domain "${job.data.domain}"`,
       );

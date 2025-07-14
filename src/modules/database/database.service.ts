@@ -147,6 +147,28 @@ export class DatabaseService
     });
   }
 
+  async updateUserRemainingReportsDecrement(id: string): Promise<User> {
+    return this.user.update({
+      where: { id },
+      data: {
+        remainingReports: {
+          decrement: 1,
+        },
+      },
+    });
+  }
+
+  async updateUserRemainingReportsIncrement(id: string): Promise<User> {
+    return this.user.update({
+      where: { id },
+      data: {
+        remainingReports: {
+          increment: 1,
+        },
+      },
+    });
+  }
+
   async overrideSession(
     userId: string,
     accessTokenHash: string,
