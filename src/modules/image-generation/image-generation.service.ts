@@ -14,7 +14,17 @@ export class ImageGenerationService {
   ): Promise<string[]> {
     try {
       const rects: IRectangle[] = [];
+      const screenPaths: string[] = [];
       const paths: string[] = [];
+
+      if (!fs.existsSync(path.join(outputDir, 'screens')))
+        fs.mkdirSync(path.join(outputDir, 'screens'));
+
+      if (!fs.existsSync(path.join(outputDir, 'elements')))
+        fs.mkdirSync(path.join(outputDir, 'elements'));
+
+      if (!fs.existsSync(path.join(outputDir, 'overlays')))
+        fs.mkdirSync(path.join(outputDir, 'overlays'));
 
       const violations = results.violations;
       for (let i = 0; i < violations.length; i++) {
@@ -22,62 +32,116 @@ export class ImageGenerationService {
         for (let j = 0; j < violation.nodes.length; j++) {
           const target = violation.nodes[j].target;
 
-          for (const selector of target) {
-            const element = await driver.findElement(
-              By.css(selector.toString()),
-            );
+          for (const selectorMain of target) {
+            let selector: string;
+            if (typeof selectorMain === 'string') {
+              selector = selectorMain;
+            } else {
+              selector = selectorMain[0];
+            }
+
+            const element = await driver.findElement(By.css(selector));
+            await driver.executeScript((el) => {
+              el.scrollIntoView({ behavior: 'instant', block: 'center' });
+            }, element);
 
             console.log(`attempting to screeshot element_${i}_${j}`);
-            const rect = await element.getRect();
+            const rect: {
+              x: number;
+              y: number;
+              width: number;
+              height: number;
+            } = await driver.executeScript((el) => {
+              // eslint-disable-next-line @typescript-eslint/no-unsafe-return
+              return el.getBoundingClientRect();
+            }, element);
+
+            console.log(`attempting to screeshot screen_${i}_${j}`);
             try {
+              const screenImage = await driver.takeScreenshot();
+              const screenFilename = path.join(
+                outputDir,
+                'screens',
+                `screen_${i + 1}_${j + 1}.png`,
+              );
+              console.log(`Saved screen to: ${screenFilename}`);
+
               const image = await element.takeScreenshot(true);
               rects.push(rect);
               const filename = path.join(
                 outputDir,
+                'elements',
                 `element_${i + 1}_${j + 1}.png`,
               );
+              fs.writeFileSync(screenFilename, screenImage, 'base64');
+              screenPaths.push(screenFilename);
               fs.writeFileSync(filename, image, 'base64');
               paths.push(filename);
               console.log(`Saved element to: ${filename}`);
             } catch (error) {
-              console.log(`failed at screenshot element taking: ${error}`);
+              console.log(
+                `failed at screenshot element_${i + 1}_${j + 1} taking: ${error}`,
+              );
             }
           }
         }
       }
 
-      const pageImage = await driver.takeScreenshot();
-      const pageFilename = path.join(outputDir, `page.png`);
-      fs.writeFileSync(pageFilename, pageImage, 'base64');
+      console.log(`rects: ${JSON.stringify(rects)}`);
 
-      const baseMetadata = await Sharp(pageFilename).metadata();
-      const mutedBaseBuffer = await Sharp(pageFilename)
-        .composite([
-          {
-            input: {
-              create: {
-                width: baseMetadata.width,
-                height: baseMetadata.height,
-                channels: 4,
-                background: { r: 255, g: 255, b: 255, alpha: 0.2 },
+      if (screenPaths.length !== paths.length) {
+        console.log(
+          `WARNING!: screenPaths.length (${screenPaths.length}) !== paths.length (${paths.length})`,
+        );
+      }
+      if (rects.length !== paths.length) {
+        console.log(
+          `WARNING!: rects.length (${rects.length}) !== paths.length (${paths.length})`,
+        );
+      }
+
+      // const pageImage = await driver.takeScreenshot();
+      // const pageFilename = path.join(outputDir, `page.png`);
+      // fs.writeFileSync(pageFilename, pageImage, 'base64');
+
+      const metadatas: Sharp.Metadata[] = [];
+      const compositedBuffers: Buffer<ArrayBufferLike>[] = [];
+      for (const screenPath of screenPaths) {
+        const baseMetadata = await Sharp(screenPath).metadata();
+        metadatas.push(baseMetadata);
+        const mutedBaseBuffer = await Sharp(screenPath)
+          .composite([
+            {
+              input: {
+                create: {
+                  width: baseMetadata.width,
+                  height: baseMetadata.height,
+                  channels: 4,
+                  background: { r: 255, g: 255, b: 255, alpha: 0.2 },
+                },
               },
+              blend: 'over',
             },
-            blend: 'over',
-          },
-        ])
-        .png()
-        .toBuffer();
+          ])
+          .png()
+          .toBuffer();
 
-      rects.forEach((el) => {
-        el.x = Math.min(baseMetadata.width, Math.ceil(el.x));
-        el.y = Math.min(baseMetadata.height, Math.ceil(el.y));
+        compositedBuffers.push(mutedBaseBuffer);
+      }
+
+      for (let i = 0; i < rects.length; i++) {
+        const el = rects[i];
+        const metadata = metadatas[i];
+        el.x = Math.min(metadata.width, Math.ceil(el.x));
+        el.y = Math.min(metadata.height, Math.ceil(el.y));
         el.width = Math.ceil(el.width);
         el.height = Math.ceil(el.height);
-      });
+      }
 
       for (let i = 0; i < rects.length; i++) {
         const { x, y } = rects[i];
         const smallPath = paths[i];
+        const mutedBaseBuffer = compositedBuffers[i];
 
         const smallImageBuffer = await Sharp(smallPath).toBuffer();
         const borderedBuffer = await this.addRedBorder(smallImageBuffer);
@@ -87,19 +151,29 @@ export class ImageGenerationService {
           .png()
           .toBuffer();
 
-        const outPath = path.join(outputDir, `overlay_${i + 1}.png`);
+        const base = paths[i].substring(paths[i].lastIndexOf('/') + 1);
+        const regex = /_(\d+)_(\d+)\./;
+        const match = base.match(regex);
+
+        let firstNum: number = 0;
+        let secondNum: number = i + 1;
+        if (match) {
+          firstNum = parseInt(match[1], 10);
+          secondNum = parseInt(match[2], 10);
+          console.log({ firstNum, secondNum });
+        } else {
+          console.error('Filename does not match expected pattern');
+        }
+
+        const outPath = path.join(
+          outputDir,
+          'overlays',
+          `overlay_${firstNum}_${secondNum}.png`,
+        );
         await Sharp(compositedBuffer).toFile(outPath);
         console.log(`Saved: ${outPath}`);
       }
-      await this.generateCroppedRegions(
-        rects,
-        paths,
-        {
-          width: baseMetadata.width,
-          height: baseMetadata.height,
-        },
-        outputDir,
-      );
+      await this.generateCroppedRegions(rects, paths, metadatas, outputDir);
     } catch (error) {
       console.log(`Error during image generation: ${error}`);
       return [];
@@ -184,25 +258,47 @@ export class ImageGenerationService {
   private async generateCroppedRegions(
     smallImagesInfo: IRectangle[],
     paths: string[],
-    baseMetadata: { width: number; height: number },
+    baseMetadata: { width: number; height: number }[],
     outputDir: string,
   ) {
     const cropOutputDir = path.join(outputDir, 'output_crops');
     if (!fs.existsSync(cropOutputDir)) fs.mkdirSync(cropOutputDir);
 
-    const maxWidth = baseMetadata.width;
-    const maxHeight = baseMetadata.height;
-    const minWidth = 0;
-    const minHeight = 0;
-
     for (let i = 0; i < smallImagesInfo.length; i++) {
+      const maxWidth = baseMetadata[i].width;
+      const maxHeight = baseMetadata[i].height;
+      const minWidth = 0;
+      const minHeight = 0;
+
       // eslint-disable-next-line prefer-const
       let { x, y, width, height } = smallImagesInfo[i];
       const smallMetaData = await Sharp(paths[i]).metadata();
+
+      const base = paths[i].substring(paths[i].lastIndexOf('/') + 1);
+      const regex = /_(\d+)_(\d+)\./;
+      const match = base.match(regex);
+
+      let firstNum: number = 0;
+      let secondNum: number = i + 1;
+      if (match) {
+        firstNum = parseInt(match[1], 10);
+        secondNum = parseInt(match[2], 10);
+        console.log({ firstNum, secondNum });
+      } else {
+        console.error('Filename does not match expected pattern');
+      }
+
       width = smallMetaData.width;
       height = smallMetaData.height;
-      const overlayPath = path.join(outputDir, `overlay_${i + 1}.png`);
-      const cropPath = path.join(cropOutputDir, `crop_${i + 1}.png`);
+      const overlayPath = path.join(
+        outputDir,
+        'overlays',
+        `overlay_${firstNum}_${secondNum}.png`,
+      );
+      const cropPath = path.join(
+        cropOutputDir,
+        `crop_${firstNum}_${secondNum}.png`,
+      );
       const minMargin = 25;
 
       let cropHeight: number;
@@ -245,18 +341,22 @@ export class ImageGenerationService {
         continue;
       }
 
-      const croppedBuffer = await Sharp(overlayPath)
-        .extract({
-          left: cropX,
-          top: cropY,
-          width: cropWidth,
-          height: cropHeight,
-        })
-        .png()
-        .toBuffer();
+      try {
+        const croppedBuffer = await Sharp(overlayPath)
+          .extract({
+            left: cropX,
+            top: cropY,
+            width: cropWidth,
+            height: cropHeight,
+          })
+          .png()
+          .toBuffer();
 
-      await Sharp(croppedBuffer).toFile(cropPath);
-      console.log(`Saved crop: ${cropPath}`);
+        await Sharp(croppedBuffer).toFile(cropPath);
+        console.log(`Saved crop: ${cropPath}`);
+      } catch (error) {
+        console.log(`Error cropping image ${i + 1}, failed to extract:`, error);
+      }
     }
   }
 }

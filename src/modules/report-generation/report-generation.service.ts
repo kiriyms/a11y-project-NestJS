@@ -3,6 +3,9 @@
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
 import { Injectable } from '@nestjs/common';
 import * as jsPDF from 'jspdf';
+import * as path from 'path';
+import * as fs from 'fs';
+import * as Sharp from 'sharp';
 import axe, { AxeResults } from 'axe-core';
 
 // 1 inch : 25.4 mm
@@ -38,8 +41,15 @@ const HIGHLIGHT_MARGIN_RIGHT = 2.5;
 
 @Injectable()
 export class ReportGenerationService {
-  generateReport(results: AxeResults): jsPDF.jsPDF {
+  async generateReport(
+    results: AxeResults,
+    imagesDir: string,
+    reportId: string,
+  ): Promise<jsPDF.jsPDF> {
     const doc = new jsPDF.jsPDF();
+
+    const imagesPath = path.join(imagesDir, reportId, 'output_crops');
+    console.log(`Images path: ${imagesPath}`);
 
     // make the pdf here!
     let page_Y_offset = MARGIN_TOP;
@@ -292,7 +302,12 @@ export class ReportGenerationService {
       'bold',
       `Total violations: ${results.violations.length}`,
     );
-    results.violations.forEach((violation, violation_i) => {
+    for (
+      let violation_i = 0;
+      violation_i < results.violations.length;
+      violation_i++
+    ) {
+      const violation = results.violations[violation_i];
       page_Y_offset = applyText(
         doc,
         page_Y_offset,
@@ -349,7 +364,8 @@ export class ReportGenerationService {
         `Failing elements:`,
       );
 
-      violation.nodes.forEach((node, node_i) => {
+      for (let node_i = 0; node_i < violation.nodes.length; node_i++) {
+        const node = violation.nodes[node_i];
         const color = getFontColorFromImpactValue(node.impact);
         const impactText =
           color === COLOR_BLACK ? 'not specified' : node.impact;
@@ -362,10 +378,33 @@ export class ReportGenerationService {
           'normal',
           `${violation_i + 1}.${node_i + 1}. Element impact: ${impactText}`,
         );
+        try {
+          const imagePath = path.join(
+            imagesPath,
+            `crop_${violation_i + 1}_${node_i + 1}.png`,
+          );
+          const metadata = await Sharp(imagePath).metadata();
+          console.log(`adding image to pdf from path: ${imagePath}`);
+          const base64 = fs.readFileSync(imagePath, { encoding: 'base64' });
+          const imgData = `data:image/png;base64,${base64}`;
+          doc.addImage(
+            imgData,
+            'PNG',
+            MARGIN_LEFT + INDENT_SPACING * 4,
+            page_Y_offset,
+            15,
+            15,
+            `crop_${violation_i + 1}_${node_i + 1}`,
+          );
+        } catch (error) {
+          console.error(
+            `Error adding image for violation ${violation_i + 1}, node ${node_i + 1}: ${error}`,
+          );
+        }
         page_Y_offset = applyText(
           doc,
           page_Y_offset,
-          INDENT_SPACING * 4,
+          INDENT_SPACING * 12,
           COLOR_BLACK,
           FONT_SIZE_SMALL,
           'italic',
@@ -389,13 +428,13 @@ export class ReportGenerationService {
         );
 
         page_Y_offset = newLine(doc, page_Y_offset, 0.5);
-      });
+      }
 
       if (violation_i < results.violations.length - 1) {
         page_Y_offset = newLine(doc, page_Y_offset);
         page_Y_offset = newLine(doc, page_Y_offset);
       }
-    });
+    }
 
     return doc;
   }

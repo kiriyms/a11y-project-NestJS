@@ -62,16 +62,17 @@ export class AccessibilityWorker extends WorkerHost {
     try {
       await driver.get(job.data.domain);
 
-      const { width, height } = await driver.executeScript<{
-        width: number;
-        height: number;
-      }>(`
-        return {
-          width: Math.max(document.body.scrollWidth, document.documentElement.clientWidth),
-          height: Math.max(document.body.scrollHeight, document.documentElement.clientHeight)
-        };
-      `);
-      await driver.manage().window().setRect({ x: 0, y: 0, width, height });
+      // const { width, height } = await driver.executeScript<{
+      //   width: number;
+      //   height: number;
+      // }>(`
+      //   return {
+      //     width: Math.max(document.body.scrollWidth, document.documentElement.clientWidth),
+      //     height: Math.max(document.body.scrollHeight, document.documentElement.clientHeight)
+      //   };
+      // `);
+      // await driver.manage().window().setRect({ x: 0, y: 0, width, height });
+
       await driver.executeScript(`
         document.documentElement.style.overflow = 'hidden';
         document.body.style.overflow = 'hidden';
