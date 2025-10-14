@@ -23,7 +23,7 @@ export class ReportWorker extends WorkerHost {
       'utf8',
     );
     const axeResults: AxeResults = JSON.parse(fileContents);
-    const doc = this.reportGenerationService.generateReport(
+    const doc = await this.reportGenerationService.generateReport(
       axeResults,
       path.join(__dirname, 'reports', 'raw'),
       job.data.reportId,
