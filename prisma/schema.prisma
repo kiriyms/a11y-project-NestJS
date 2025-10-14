@@ -30,49 +30,71 @@ enum ReportStatus {
 }
 
 model User {
-  id               String             @id @default(uuid())
-  email            String             @unique
-  name             String?
-  organization     String?
-  password         String
-  isActive         Boolean            @default(true)
-  isVerified       Boolean            @default(false)
-  role             Role               @default(USER)
-  subscription     SubscriptionStatus @default(BASE)
-  remainingReports Int                @default(5)
-  createdAt        DateTime           @default(now())
-  updatedAt        DateTime           @updatedAt
+  id                   String             @id @default(uuid())
+  email                String             @unique
+  firstName            String?
+  lastName             String?
+  organization         String?
+  passwordHash         String?
+  isOAuth              Boolean            @default(false)
+  isActive             Boolean            @default(true)
+  isVerified           Boolean            @default(false)
+  role                 Role               @default(USER)
+  subscription         SubscriptionStatus @default(BASE)
+  remainingReports     Int                @default(5)
+  stripeCustomerId     String?            @unique
+  stripeSubscriptionId String?            @unique
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
 
-  reports  Report[]
-  AlphaKey AlphaKey[]
+  reports Report[]
 
-  FeedbackMessage FeedbackMessage[]
+  Session Session?
+
+  VerificationToken VerificationToken?
+
+  ResetPasswordToken ResetPasswordToken?
 }
 
 model Report {
-  id        String       @id @default(uuid())
-  domain    String
-  fileName  String?
-  status    ReportStatus @default(PENDING)
-  user      User         @relation(fields: [userId], references: [id])
-  userId    String
-  createdAt DateTime     @default(now())
-  updatedAt DateTime     @updatedAt
+  id               String       @id @default(uuid())
+  domain           String
+  fileName         String?
+  passes           Int?
+  incompletePasses Int?
+  violations       Int?
+  jobErrorMessage  String?
+  status           ReportStatus @default(PENDING)
+  user             User         @relation(fields: [userId], references: [id])
+  userId           String
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
 }
 
-model AlphaKey {
+model Session {
+  id               String   @id @default(uuid())
+  accessTokenHash  String   @unique
+  refreshTokenHash String   @unique
+  user             User     @relation(fields: [userId], references: [id])
+  userId           String   @unique
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
+model VerificationToken {
   id        String   @id @default(uuid())
-  user      User?    @relation(fields: [userId], references: [id])
-  userId    String?
+  tokenHash String   @unique
+  user      User     @relation(fields: [userId], references: [id])
+  userId    String   @unique
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
 
-model FeedbackMessage {
+model ResetPasswordToken {
   id        String   @id @default(uuid())
-  text      String
+  tokenHash String   @unique
   user      User     @relation(fields: [userId], references: [id])
-  userId    String
+  userId    String   @unique
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }

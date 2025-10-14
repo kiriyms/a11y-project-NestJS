@@ -1,18 +1,27 @@
 import { Module } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
-import { JwtModule, JwtService } from '@nestjs/jwt';
-import { DatabaseService } from 'src/services/database/database.service';
+import { LocalStrategy } from 'src/strategies/local.strategy';
+import { PassportModule } from '@nestjs/passport';
+import { JwtAccessStrategy } from 'src/strategies/jwt-access.strategy';
+import { JwtRefreshStrategy } from 'src/strategies/jwt-refresh.strategy';
+import { GoogleStrategy } from 'src/strategies/google.strategy';
+import { JwtVerifyStrategy } from 'src/strategies/jwt-verify.strategy';
+import { TokenGenerationService } from '../token-generation/token-generation.service';
+import { JwtResetPasswordStrategy } from 'src/strategies/jwt-reset-password.strategy';
 
 @Module({
-  // imports: [
-  //   JwtModule.register({
-  //     global: false,
-  //     secret: process.env.JWT_SECRET,
-  //     signOptions: { expiresIn: '60s' },
-  //   })
-  // ],
+  imports: [PassportModule],
   controllers: [AuthController],
-  providers: [AuthService, DatabaseService],
+  providers: [
+    AuthService,
+    LocalStrategy,
+    JwtAccessStrategy,
+    JwtRefreshStrategy,
+    JwtVerifyStrategy,
+    JwtResetPasswordStrategy,
+    GoogleStrategy,
+    TokenGenerationService,
+  ],
 })
 export class AuthModule {}

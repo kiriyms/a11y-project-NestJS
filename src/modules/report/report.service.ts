@@ -1,183 +1,174 @@
-import { Injectable, InternalServerErrorException, Logger, NotFoundException } from '@nestjs/common';
-import * as fs from 'fs';
-import { Report, ReportStatus, User } from '@prisma/client';
-import { DatabaseService } from 'src/services/database/database.service';
-import { AxeBuilder } from '@axe-core/webdriverjs';
-import { Builder, ThenableWebDriver } from 'selenium-webdriver';
-import * as chrome from 'selenium-webdriver/chrome';
-import { AxeResults } from 'axe-core';
-import jsPDF from 'jspdf';
-import { ReportGenerationService } from 'src/services/report-generation/report-generation.service';
+import {
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { DatabaseService } from '../database/database.service';
+import { Report, ReportStatus } from '@prisma/client';
+import { NewReportDto } from './dto/new-report.dto';
 import { InjectQueue } from '@nestjs/bullmq';
-import { Queue } from 'bullmq';
+import { Job, Queue } from 'bullmq';
+import { AccessibilityAnalysisDto } from './dto/accessibility-analysis.dto';
+import { ReportGenerationDto } from './dto/report-generation.dto';
+import {
+  ACCESSIBILITY_ANALYSIS_QUEUE,
+  QueueName,
+  REPORT_GENERATION_QUEUE,
+} from 'src/common/constants';
+import { Cron, CronExpression } from '@nestjs/schedule';
+import { ResendService } from 'nestjs-resend';
 
 @Injectable()
 export class ReportService {
-    constructor(
-        private readonly databaseService: DatabaseService,
-        private readonly reportGenerationService: ReportGenerationService,
-        // @InjectQueue('reportQueue') private readonly reportQueue: Queue,
-    ) {}
+  constructor(
+    private readonly databaseService: DatabaseService,
+    @InjectQueue(ACCESSIBILITY_ANALYSIS_QUEUE)
+    private readonly accessibilityQueue: Queue,
+    @InjectQueue(REPORT_GENERATION_QUEUE) private readonly reportQueue: Queue,
+    private readonly resendService: ResendService,
+  ) {}
 
-    private jobsCounter = 0;
-    private readonly MAX_CONCURRENT_JOBS = 5;
-    private readonly logger = new Logger(ReportService.name);
+  // async getAllUsers(): Promise<User[]> {
+  //     return this.databaseService.getUsers()
+  // }
 
-    async generateReport(userId: string, domain: string) {
-        if (this.jobsCounter >= this.MAX_CONCURRENT_JOBS) {
-            this.logger.warn(`Max concurrent jobs reached. Cannot analyze \"${domain}\"`);
-            throw new InternalServerErrorException("[ERROR] server processing is at maximum capacity. Please try again later.");
-        }
-        this.jobsCounter++;
+  async generateReport(userId: string, data: NewReportDto): Promise<Report> {
+    const report = await this.databaseService.createReport(userId, data.domain);
+    const user = await this.databaseService.getUserById(userId);
+    if (!user) {
+      throw new NotFoundException('user not found');
+    }
+    if (user.subscription !== 'PREMIUM' && user.remainingReports <= 0) {
+      throw new ForbiddenException('user has no remaining reports');
+    }
+    // try/catch starting a job. If fails, change report status to failed
+    // OR use a queue listener to change job to failed/completed
+    const jobData: AccessibilityAnalysisDto = {
+      domain: data.domain,
+      userEmail: user.email,
+      reportId: report.id,
+    };
+    await this.accessibilityQueue.add('analyze-domain', jobData);
 
-        const report = await this.databaseService.postReport({ userId, domain });
-        const user = await this.databaseService.getUserById(userId);
-        if (user === null) {
-            this.jobsCounter--;
-            throw new NotFoundException("[ERROR] user not found");
-        }
-        // if (user.remainingReports <= 0) throw new InternalServerErrorException("[ERROR] user has no remaining reports");
-        this.logger.warn(`Attempting to generate report for user: ${user.email}, for domain \"${domain}\". Current running jobs: ${this.jobsCounter}`);
-
-        const fileNameRaw = "reports/report_" + Date.now()
-        const fileName = fileNameRaw + ".json"
-        const fileNamePdf = fileNameRaw + ".pdf"
-
-        // const userDataDir = `tempdir_${Date.now()}`
-        // const userDataDirPath = `/${process.env.USER_DATA_DIR}/${userDataDir}`
-        // //fs.mkdirSync(userDataDirPath, { recursive: true });
-
-        // let driver: ThenableWebDriver;
-        // try {
-        //     const opts = new chrome.Options();
-        //     this.logger.warn(`User data dir for this user: ${`--user-data-dir=${userDataDirPath}`}`)
-        //     opts.addArguments(
-        //         `--user-data-dir=${userDataDirPath}`, 
-        //         '--headless=new', 
-        //         '--no-sandbox', 
-        //         '--disable-dev-shm-usage', 
-        //         '--incognito', 
-        //         '--disable-gpu',
-        //         'enable-automation',
-        //         '--dns-prefetch-disable',
-        //         '--disable-extensions',  
-        //     );
-        //     driver = new Builder()
-        //         .forBrowser('chrome')
-        //         .setChromeOptions(opts)
-        //         .build();
-        //     driver.manage().setTimeouts({ implicit: 300000, pageLoad: 300000, script: 600000 });
-        // } catch (error) {
-        //     this.logger.error(`Failed to generate report for user: ${user.email}, for domain \"${domain}\", error: ${error}`);
-        //     await this.databaseService.patchReport(report.id, { fileName: fileNamePdf, status: ReportStatus.FAILED });
-        //     this.jobsCounter--;
-        //     throw new InternalServerErrorException("[ERROR] failed to generate report. Algorithm could not be started. " + error);
-       
-        // }
-
-        // try {        
-        //     await driver.get(domain);
-        //     let reportResults: AxeResults
-
-        //     const results = await new AxeBuilder(driver).analyze();
-
-        //     const doc = this.reportGenerationService.generateReport(results)
-        //     doc.save(fileNamePdf);
-                
-        //     reportResults = results
-        //     await driver.quit();
-        
-        //     await this.databaseService.patchUser(userId, { remainingReports: user.remainingReports - 1 });
-        //     this.logger.log(`Success to generate report for user: ${user.email}, for domain \"${domain}\"`);
-        //     this.jobsCounter--;
-        //     return await this.databaseService.patchReport(report.id, { fileName: fileNamePdf, status: ReportStatus.COMPLETED });
-        // } catch (error) {
-        //     this.logger.error(`Failed to generate report for user: ${user.email}, for domain \"${domain}\", error: ${error}`);
-        //     await driver.quit();
-        //     await this.databaseService.patchReport(report.id, { fileName: fileNamePdf, status: ReportStatus.FAILED });
-        //     this.jobsCounter--;
-        //     throw new InternalServerErrorException("[ERROR] failed to generate report. Please make sure the URL is correct and contains \"https://\": " + error);
-        // }
-
-        let tries: number = 0;
-        const MAX_TRIES: number = 3;
-        let success: boolean = false;
-        while (!success && tries < MAX_TRIES) {
-            try {
-                await this.analyzePage(domain, fileNamePdf, userId, user, report);
-                success = true;
-                this.jobsCounter--;
-                // await driver.quit();
-                return await this.databaseService.patchReport(report.id, { fileName: fileNamePdf, status: ReportStatus.COMPLETED });
-            } catch (error) {
-                tries++;
-                this.logger.error(`Failed to generate report for user: ${user.email}, for domain \"${domain}\", error: ${error}\nRetrying... Retry number: ${tries}`);
-                if (tries >= MAX_TRIES) {
-                    // await driver.quit();
-                    await this.databaseService.patchReport(report.id, { fileName: fileNamePdf, status: ReportStatus.FAILED });
-                    this.jobsCounter--;
-                    throw new InternalServerErrorException("[ERROR] failed to generate report. Please make sure the URL is correct and contains \"https://\": " + error);
-                }
-            }
-        }
+    if (user.subscription !== 'PREMIUM') {
+      await this.databaseService.updateUserRemainingReportsDecrement(user.id);
     }
 
-    async getUserReports(userId: string) {
-        this.logger.log(`Fetching reports`);
-        return this.databaseService.getUserReports(userId)
+    return report;
+  }
+
+  async incrementRemainingReports(
+    jobId: string,
+    queueName: QueueName,
+  ): Promise<void> {
+    let job: Job;
+    switch (queueName) {
+      case QueueName.AccessibilityQueue:
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+        job = await this.accessibilityQueue.getJob(jobId);
+        break;
+      case QueueName.ReportQueue:
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+        job = await this.reportQueue.getJob(jobId);
+        break;
+      default:
+        // log error
+        return;
+    }
+    console.log(
+      `job data queried from ${queueName} queue: ${JSON.stringify(job.data)}`,
+    );
+    if (!job) {
+      // log error
     }
 
-    private async analyzePage(domain: string, fileNamePdf: string, userId: string, user: User, report: Report) {
-
-        const userDataDir = `tempdir_${Date.now()}`
-        const userDataDirPath = `/${process.env.USER_DATA_DIR}/${userDataDir}`
-        //fs.mkdirSync(userDataDirPath, { recursive: true });
-
-        let driver: ThenableWebDriver;
-        try {
-            const opts = new chrome.Options();
-            this.logger.warn(`User data dir for this user: ${`--user-data-dir=${userDataDirPath}`}`)
-            opts.addArguments(
-                `--user-data-dir=${userDataDirPath}`, 
-                '--headless=new', 
-                '--no-sandbox', 
-                '--disable-dev-shm-usage', 
-                '--incognito', 
-                '--disable-gpu',
-            );
-            driver = new Builder()
-                .forBrowser('chrome')
-                .setChromeOptions(opts)
-                .build();
-            driver.manage().setTimeouts({ implicit: 300000, pageLoad: 300000, script: 600000 });
-        } catch (error) {
-            this.logger.error(`Failed to generate report for user: ${user.email}, for domain \"${domain}\", error: ${error}`);
-            await this.databaseService.patchReport(report.id, { fileName: fileNamePdf, status: ReportStatus.FAILED });
-            throw new InternalServerErrorException("[ERROR] failed to generate report. Algorithm could not be started. " + error);
-       
-        }
-        
-        
-        try {        
-            await driver.get(domain);
-            let reportResults: AxeResults
-
-            const results = await new AxeBuilder(driver).analyze();
-
-            const doc = this.reportGenerationService.generateReport(results)
-            doc.save(fileNamePdf);
-            // console.log("add to queue")
-            // this.reportQueue.add('report-job', { results })
-                
-            reportResults = results
-            await driver.quit();
-        
-            await this.databaseService.patchUser(userId, { remainingReports: user.remainingReports - 1 });
-            this.logger.log(`Success to generate report for user: ${user.email}, for domain \"${domain}\"`);
-        } catch (error) {
-            this.logger.error(`Failed to generate report for user: ${user.email}, for domain \"${domain}\", error: ${error}`);
-            await driver.quit();
-            throw new InternalServerErrorException("[ERROR] failed to generate report. Please make sure the URL is correct and contains \"https://\": " + error);
-        }
+    const user = await this.databaseService.getUserByEmail(job.data.userEmail);
+    if (!user) {
+      return;
     }
+    if (user.subscription === 'PREMIUM') {
+      return;
+    }
+
+    await this.databaseService.updateUserRemainingReportsIncrement(user.id);
+  }
+
+  async getUserReports(userId: string): Promise<Report[]> {
+    const user = await this.databaseService.getUserById(userId);
+    if (!user) {
+      throw new NotFoundException('user not found');
+    }
+    return this.databaseService.getUserReportsByUserId(userId);
+  }
+
+  async getUserReportById(userId: string, reportId: string): Promise<Report> {
+    const user = await this.databaseService.getReportUserById(reportId);
+    if (!user) {
+      throw new NotFoundException('user not found');
+    }
+
+    if (user.id !== userId) {
+      throw new ForbiddenException(
+        'user does not have permission to access this report',
+      );
+    }
+
+    return this.databaseService.getReportById(reportId);
+  }
+
+  async queueAddReportGenerationJob(data: ReportGenerationDto): Promise<void> {
+    await this.reportQueue.add('generate-report', data);
+  }
+
+  async queueUpdateReportStatus(
+    jobId: string,
+    queueName: QueueName,
+    status: ReportStatus,
+    fileName: string,
+  ): Promise<void> {
+    let job: Job;
+    switch (queueName) {
+      case QueueName.AccessibilityQueue:
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+        job = await this.accessibilityQueue.getJob(jobId);
+        break;
+      case QueueName.ReportQueue:
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+        job = await this.reportQueue.getJob(jobId);
+        break;
+      default:
+        // log error
+        return;
+    }
+    console.log(
+      `job data queried from ${queueName} queue: ${JSON.stringify(job.data)}`,
+    );
+    if (!job) {
+      // log error
+    }
+    await this.databaseService.updateReportStatusById(
+      job.data.reportId,
+      status,
+      fileName,
+    );
+  }
+
+  @Cron(CronExpression.EVERY_1ST_DAY_OF_MONTH_AT_NOON)
+  async scheduledEmail(): Promise<void> {
+    console.log('email!');
+    await this.resendService.send({
+      from: 'no-reply@a11y-server.xyz',
+      to: 'samcolserra@gmail.com',
+      subject: 'A11yReport Monthly',
+      text: `Monthly report email sent at ${new Date().toISOString()}`,
+    });
+    await this.resendService.send({
+      from: 'no-reply@a11y-server.xyz',
+      to: 'kiriyms@gmail.com',
+      subject: 'A11yReport Monthly',
+      text: `Monthly report email sent at ${new Date().toISOString()}`,
+    });
+  }
+
+  // ADD CRON FOR REFRESHING ALL REPORT LIMITS MONTHLY
 }
