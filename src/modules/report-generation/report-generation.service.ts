@@ -2,10 +2,10 @@
 /* eslint-disable no-case-declarations */
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
 import { Injectable } from '@nestjs/common';
-import * as jsPDF from 'jspdf';
-import * as path from 'path';
-import * as fs from 'fs';
-import * as Sharp from 'sharp';
+import { jsPDF } from 'jspdf';
+import path from 'path';
+import fs from 'fs';
+import Sharp from 'sharp';
 import axe, { AxeResults } from 'axe-core';
 
 // 1 inch : 25.4 mm
@@ -45,8 +45,8 @@ export class ReportGenerationService {
     results: AxeResults,
     imagesDir: string,
     reportId: string,
-  ): Promise<jsPDF.jsPDF> {
-    const doc = new jsPDF.jsPDF();
+  ): Promise<jsPDF> {
+    const doc = new jsPDF();
 
     const imagesPath = path.join(imagesDir, reportId, 'output_crops');
     console.log(`Images path: ${imagesPath}`);
@@ -441,7 +441,7 @@ export class ReportGenerationService {
 }
 
 function applyText(
-  doc: jsPDF.jsPDF,
+  doc: jsPDF,
   y_offset: number,
   x_indent: number,
   fontColor: string,
@@ -493,10 +493,7 @@ function applyText(
   return y_offset;
 }
 
-function getLongestWidthOfStringFromArray(
-  doc: jsPDF.jsPDF,
-  array: string[],
-): number {
+function getLongestWidthOfStringFromArray(doc: jsPDF, array: string[]): number {
   let length = 0;
   for (let i = 0; i < array.length; i++) {
     const elementLength = doc.getTextWidth(array[i]);
@@ -508,11 +505,7 @@ function getLongestWidthOfStringFromArray(
   return length;
 }
 
-function newLine(
-  doc: jsPDF.jsPDF,
-  y_offset: number,
-  multiplier: number = 1,
-): number {
+function newLine(doc: jsPDF, y_offset: number, multiplier: number = 1): number {
   const offset = (FONT_SIZE_SMALL / PPMM + LINE_SPACING) * multiplier;
   y_offset += offset;
   if (y_offset > MAX_Y_OFFSET) {

@@ -20,7 +20,7 @@ import { AccessibilityQueueEventsListener } from './queue-processing/event-liste
 import { ReportQueueEventsListener } from './queue-processing/event-listeners/report-queue.events';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ServeStaticModule } from '@nestjs/serve-static';
-import { join } from 'path';
+import { join, parse } from 'path';
 import { ImageGenerationService } from './modules/image-generation/image-generation.service';
 import { ImageGenerationModule } from './modules/image-generation/image-generation.module';
 
@@ -39,7 +39,10 @@ import { ImageGenerationModule } from './modules/image-generation/image-generati
       global: true,
     }),
     BullModule.forRoot({
-      connection: { host: 'localhost', port: 6379 },
+      connection: {
+        host: process.env.REDIS_HOST || 'localhost',
+        port: process.env.REDIS_PORT ? parseInt(process.env.REDIS_PORT) : 6379,
+      },
       defaultJobOptions: {
         attempts: 1,
         backoff: 1000,
