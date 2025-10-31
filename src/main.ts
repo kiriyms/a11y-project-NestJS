@@ -7,11 +7,7 @@ async function bootstrap() {
     rawBody: true,
   });
   app.enableCors({
-    origin: [
-      'http://localhost:3000',
-      'https://a11y-project-steel.vercel.app',
-      'https://mozilla.github.io',
-    ],
+    origin: ['https://a11y.kiriyms.dev'],
   });
 
   await app.listen(process.env.PORT ?? 3000);
