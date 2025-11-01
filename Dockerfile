@@ -28,6 +28,10 @@ COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/package*.json ./
 
+# Copy the entrypoint script
+COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
 # Install only production dependencies
 RUN npm ci --omit=dev
 
@@ -35,7 +39,7 @@ RUN npm ci --omit=dev
 ENV NODE_ENV=production
 
 # Expose port
-EXPOSE 3000
+EXPOSE 3001
 
-# Start the app
-CMD ["node", "dist/main.js"]
+# Use entrypoint instead of CMD
+ENTRYPOINT ["entrypoint.sh"]
