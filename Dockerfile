@@ -23,6 +23,17 @@ FROM node:22-alpine AS runner
 
 WORKDIR /app
 
+# Install Chromium + libvips for sharp
+RUN apk add --no-cache \
+    chromium \
+    chromium-chromedriver \
+    nss \
+    freetype \
+    harfbuzz \
+    ca-certificates \
+    ttf-freefont \
+    vips-dev fftw-dev build-base libc6-compat
+
 # Copy build output and Prisma schema (needed for runtime queries)
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/prisma ./prisma
@@ -37,6 +48,10 @@ RUN npm ci --omit=dev
 
 # Environment
 ENV NODE_ENV=production
+
+# Tell Selenium / Puppeteer where Chromium is
+ENV CHROME_PATH=/usr/bin/chromium-browser
+ENV CHROMEDRIVER_PATH=/usr/bin/chromedriver
 
 # Expose port
 EXPOSE 3001
