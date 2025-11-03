@@ -1,5 +1,4 @@
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
-/* eslint-disable @typescript-eslint/require-await */
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
 import * as fs from 'fs';
@@ -23,17 +22,30 @@ export class ReportWorker extends WorkerHost {
       'utf8',
     );
     const axeResults: AxeResults = JSON.parse(fileContents);
+
+    const reportsDir = path.join(__dirname, 'reports');
+    const rawDir = path.join(reportsDir, 'raw');
+
+    // Ensure the output directories exist
+    fs.mkdirSync(reportsDir, { recursive: true });
+    fs.mkdirSync(rawDir, { recursive: true });
+
     const doc = await this.reportGenerationService.generateReport(
       axeResults,
-      path.join(__dirname, 'reports', 'raw'),
+      rawDir,
       job.data.reportId,
     );
+
     const reportPath = path.join(
-      'reports',
+      rawDir,
       path.basename(job.data.accessibilityAnalysisFilePath, '.json') + '.pdf',
     );
-    console.log(reportPath);
+
+    console.log('Saving PDF to:', reportPath);
+
+    // Save the PDF safely
     doc.save(reportPath);
+
     job.data.accessibilityAnalysisFilePath = reportPath;
     return job.data;
   }
