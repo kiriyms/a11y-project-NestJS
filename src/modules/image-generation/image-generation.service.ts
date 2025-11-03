@@ -1,9 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { AxeResults } from 'axe-core';
 import { By, IRectangle, ThenableWebDriver } from 'selenium-webdriver';
-import Sharp from 'sharp';
-import path from 'path';
-import fs from 'fs';
+import * as Sharp from 'sharp';
+import * as fs from 'fs';
+import * as path from 'path';
 
 @Injectable()
 export class ImageGenerationService {

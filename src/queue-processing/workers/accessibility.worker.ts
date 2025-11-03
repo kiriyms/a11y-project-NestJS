@@ -12,7 +12,7 @@ import { InternalServerErrorException } from '@nestjs/common';
 import { AccessibilityAnalysisDto } from 'src/modules/report/dto/accessibility-analysis.dto';
 import { ImageGenerationService } from 'src/modules/image-generation/image-generation.service';
 
-@Processor(ACCESSIBILITY_ANALYSIS_QUEUE, { concurrency: 2 })
+@Processor(ACCESSIBILITY_ANALYSIS_QUEUE, { concurrency: 1 })
 export class AccessibilityWorker extends WorkerHost {
   constructor(private readonly imageGenerationService: ImageGenerationService) {
     super();
@@ -23,7 +23,7 @@ export class AccessibilityWorker extends WorkerHost {
   ): Promise<ReportGenerationDto> {
     const userDataDir = `tempdir_${Date.now()}`;
     const userDataDirPath = `/${process.env.USER_DATA_DIR}/${userDataDir}`;
-    // fs.mkdirSync(userDataDirPath, { recursive: true });
+    fs.mkdirSync(userDataDirPath, { recursive: true });
 
     let driver: ThenableWebDriver;
     try {
@@ -32,7 +32,7 @@ export class AccessibilityWorker extends WorkerHost {
         `User data dir for this user: ${`--user-data-dir=${userDataDirPath}`}`,
       );
       opts.addArguments(
-        // `--user-data-dir=${userDataDirPath}`,
+        `--user-data-dir=${userDataDirPath}`,
         '--headless=new',
         '--no-sandbox',
         '--disable-dev-shm-usage',

@@ -3,9 +3,9 @@
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
 import { Injectable } from '@nestjs/common';
 import { jsPDF } from 'jspdf';
-import path from 'path';
-import fs from 'fs';
-import Sharp from 'sharp';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as Sharp from 'sharp';
 import axe, { AxeResults } from 'axe-core';
 
 // 1 inch : 25.4 mm
