@@ -55,9 +55,16 @@ import { ImageGenerationModule } from './modules/image-generation/image-generati
     ),
     ScheduleModule.forRoot(),
     ServeStaticModule.forRoot({
-      rootPath: join(__dirname, '..', 'reports'),
+      rootPath: join(
+        __dirname,
+        'queue-processing',
+        'workers',
+        'reports',
+        'raw',
+      ),
+      // rootPath: join(__dirname, '..', 'reports'),
       // rootPath: join(__dirname, 'reports'),
-      serveRoot: '/reports',
+      serveRoot: '/reports/raw',
       serveStaticOptions: {
         setHeaders: (res, path, stat) => {
           res.setHeader('Content-Type', 'application/pdf');
