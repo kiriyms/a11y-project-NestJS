@@ -7,7 +7,7 @@ async function bootstrap() {
     rawBody: true,
   });
   app.enableCors({
-    origin: ['https://a11y.kiriyms.dev'],
+    origin: ['https://a11y.kiriyms.dev', 'https://mozilla.github.io'],
   });
 
   await app.listen(process.env.PORT ?? 3000);
